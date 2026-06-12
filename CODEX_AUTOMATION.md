@@ -14,11 +14,11 @@
 | 服务器 | 8.218.32.133 |
 | 站点目录 | /opt/worldcup-ai/ |
 | SSH用户 | root |
-| 管理口令 | 从环境变量 `ADMIN_TOKEN` 读取 |
+| 管理口令 | 优先从 `~/.worldcup_admin_token` 读取；本地调试可退回环境变量 `ADMIN_TOKEN` |
 | 站点URL | https://worldcup.youliaoyun.com |
 | skill.md 位置 | 仓库根目录 `skill.md`（本仓库） |
 
-> **凭据约定：** `ADMIN_TOKEN` 和 SSH 私钥通过 Codex Secrets 注入，禁止硬编码在脚本里。
+> **凭据约定：** `ADMIN_TOKEN` 和 SSH 私钥通过 Codex Secrets 注入，并由环境 Setup Script 写入受限权限文件。Agent 执行阶段优先读取 `~/.worldcup_admin_token`，禁止把真实口令或私钥硬编码在脚本里。
 
 ---
 
@@ -125,9 +125,10 @@ scp skill.md root@8.218.32.133:/opt/worldcup-ai/skill.md
 
 2. 对每一场比赛，通过 SSH 在服务器本地执行（避免编码问题）：
 ```bash
+ADMIN_TOKEN_VALUE="$(cat ~/.worldcup_admin_token 2>/dev/null || printf '%s' "$ADMIN_TOKEN")"
 ssh root@8.218.32.133 "curl -s -X POST http://localhost:8080/api/result \
   -H 'Content-Type: application/json' \
-  -d '{\"teamA\":\"主队中文名\",\"teamB\":\"客队中文名\",\"stage\":\"小组赛\",\"score\":\"X-X\",\"token\":\"$ADMIN_TOKEN\"}'"
+  -d '{\"teamA\":\"主队中文名\",\"teamB\":\"客队中文名\",\"stage\":\"小组赛\",\"score\":\"X-X\",\"token\":\"'"$ADMIN_TOKEN_VALUE"'\"}'"
 ```
 
 3. **响应处理：**
@@ -156,9 +157,10 @@ curl -s https://worldcup.youliaoyun.com/api/stats
 
 2. 通过 SSH 在服务器本地执行：
 ```bash
+ADMIN_TOKEN_VALUE="$(cat ~/.worldcup_admin_token 2>/dev/null || printf '%s' "$ADMIN_TOKEN")"
 ssh root@8.218.32.133 "curl -s -X POST http://localhost:8080/api/fixtures \
   -H 'Content-Type: application/json' \
-  -d '{\"token\":\"$ADMIN_TOKEN\",\"fixtures\":[
+  -d '{\"token\":\"'"$ADMIN_TOKEN_VALUE"'\",\"fixtures\":[
     {\"a\":\"队A\",\"b\":\"队B\",\"meta\":\"X组 · 北京时间 6/XX HH:00\",\"live\":true},
     {\"a\":\"队C\",\"b\":\"队D\",\"meta\":\"X组 · 北京时间 6/XX HH:00\",\"live\":true},
     {\"a\":\"队E\",\"b\":\"队F\",\"meta\":\"X组 · 北京时间 6/XX HH:00\",\"live\":false},
@@ -231,12 +233,13 @@ curl -s https://worldcup.youliaoyun.com/api/fixtures
 
 服务器 `8.218.32.133` 使用 SSH key 认证（无密码）。Codex 需要：
 1. 将 SSH 私钥配置为 Secret（如 `SSH_PRIVATE_KEY`）
-2. 运行时写入 `~/.ssh/id_rsa` 并设置权限 600
+2. 运行时写入 `~/.ssh/id_ed25519` 并设置权限 600
 3. 将 `8.218.32.133` 加入 known_hosts（或使用 `-o StrictHostKeyChecking=no`）
 
 示例初始化脚本：
 ```bash
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
-echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
 ssh-keyscan -H 8.218.32.133 >> ~/.ssh/known_hosts 2>/dev/null
+printf '%s' "$ADMIN_TOKEN" > ~/.worldcup_admin_token && chmod 600 ~/.worldcup_admin_token
 ```
